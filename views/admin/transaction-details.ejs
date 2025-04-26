@@ -1,0 +1,134 @@
+<%- include('layout', { title: 'Transaction Details', path: 'transactions' }) %>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Transaction Details</h5>
+            <a href="/admin/transactions" class="btn btn-sm btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Transactions
+            </a>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-4">
+                    <h6 class="text-muted">Transaction Information</h6>
+                    <hr>
+                    <dl class="row">
+                        <dt class="col-sm-4">Transaction ID</dt>
+                        <dd class="col-sm-8"><%= transaction._id %></dd>
+                        
+                        <dt class="col-sm-4">Type</dt>
+                        <dd class="col-sm-8"><%= transaction.type %></dd>
+                        
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">
+                            <span class="badge <%= 
+                                transaction.status === 'COMPLETED' ? 'bg-success' : 
+                                transaction.status === 'PENDING' ? 'bg-warning' : 
+                                transaction.status === 'CONFIRMED' ? 'bg-info' : 
+                                'bg-danger' 
+                            %>">
+                                <%= transaction.status %>
+                            </span>
+                        </dd>
+                        
+                        <dt class="col-sm-4">Created</dt>
+                        <dd class="col-sm-8"><%= moment(transaction.createdAt).format('MMM DD, YYYY HH:mm:ss') %></dd>
+                        
+                        <% if (transaction.confirmedAt) { %>
+                        <dt class="col-sm-4">Confirmed</dt>
+                        <dd class="col-sm-8"><%= moment(transaction.confirmedAt).format('MMM DD, YYYY HH:mm:ss') %></dd>
+                        <% } %>
+                        
+                        <% if (transaction.completedAt) { %>
+                        <dt class="col-sm-4">Completed</dt>
+                        <dd class="col-sm-8"><%= moment(transaction.completedAt).format('MMM DD, YYYY HH:mm:ss') %></dd>
+                        <% } %>
+                        
+                        <% if (transaction.blockchainTxHash) { %>
+                        <dt class="col-sm-4">Blockchain Tx Hash</dt>
+                        <dd class="col-sm-8">
+                            <a href="https://mumbai.polygonscan.com/tx/<%= transaction.blockchainTxHash %>" target="_blank" class="text-break">
+                                <%= transaction.blockchainTxHash %>
+                                <i class="bi bi-box-arrow-up-right small"></i>
+                            </a>
+                        </dd>
+                        <% } %>
+                        
+                        <% if (transaction.reloadlyTransactionId) { %>
+                        <dt class="col-sm-4">Reloadly Tx ID</dt>
+                        <dd class="col-sm-8"><%= transaction.reloadlyTransactionId %></dd>
+                        <% } %>
+                    </dl>
+                </div>
+                
+                <div class="mb-4">
+                    <h6 class="text-muted">Data Plan Information</h6>
+                    <hr>
+                    <% if (transaction.dataPlan) { %>
+                    <dl class="row">
+                        <dt class="col-sm-4">Plan Name</dt>
+                        <dd class="col-sm-8"><%= transaction.dataPlan.name %></dd>
+                        
+                        <dt class="col-sm-4">Operator</dt>
+                        <dd class="col-sm-8"><%= transaction.dataPlan.operator %></dd>
+                        
+                        <dt class="col-sm-4">Country</dt>
+                        <dd class="col-sm-8"><%= transaction.dataPlan.country %></dd>
+                    </dl>
+                    <% } else { %>
+                    <p class="text-muted">No data plan information available</p>
+                    <% } %>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="mb-4">
+                    <h6 class="text-muted">User Information</h6>
+                    <hr>
+                    <% if (transaction.userId) { %>
+                    <dl class="row">
+                        <dt class="col-sm-4">User ID</dt>
+                        <dd class="col-sm-8"><%= transaction.userId._id %></dd>
+                        
+                        <dt class="col-sm-4">Phone Number</dt>
+                        <dd class="col-sm-8"><%= transaction.userId.phoneNumber %></dd>
+                        
+                        <dt class="col-sm-4">Wallet Address</dt>
+                        <dd class="col-sm-8 text-break"><%= transaction.userId.walletAddress %></dd>
+                    </dl>
+                    <% } else { %>
+                    <p class="text-muted">No user information available</p>
+                    <% } %>
+                </div>
+                
+                <div class="mb-4">
+                    <h6 class="text-muted">Amount Information</h6>
+                    <hr>
+                    <dl class="row">
+                        <dt class="col-sm-4">Crypto Amount</dt>
+                        <dd class="col-sm-8"><%= transaction.amount.crypto %> USDT</dd>
+                        
+                        <dt class="col-sm-4">Data Amount</dt>
+                        <dd class="col-sm-8"><%= transaction.amount.data %> MB</dd>
+                    </dl>
+                </div>
+                
+                <% if (transaction.error) { %>
+                <div class="mb-4">
+                    <h6 class="text-muted">Error Information</h6>
+                    <hr>
+                    <div class="alert alert-danger">
+                        <% if (transaction.error.code) { %>
+                        <strong>Error Code:</strong> <%= transaction.error.code %><br>
+                        <% } %>
+                        <strong>Error Message:</strong> <%= transaction.error.message || transaction.error %>
+                    </div>
+                </div>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,46 @@
+<%- include('layout', { title: 'Error', path: '' }) %>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="card-title mb-0">Error</h5>
+                </div>
+                <div class="card-body">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-exclamation-triangle-fill text-danger" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4 class="text-center mb-4">Something went wrong</h4>
+                    
+                    <% if (typeof error === 'string') { %>
+                        <div class="alert alert-danger">
+                            <%= error %>
+                        </div>
+                    <% } else if (error && error.message) { %>
+                        <div class="alert alert-danger">
+                            <strong>Error message:</strong> <%= error.message %>
+                            <% if (error.stack && process.env.NODE_ENV !== 'production') { %>
+                                <hr>
+                                <pre class="mb-0"><%= error.stack %></pre>
+                            <% } %>
+                        </div>
+                    <% } else { %>
+                        <div class="alert alert-danger">
+                            An unknown error occurred. Please try again later.
+                        </div>
+                    <% } %>
+                    
+                    <div class="text-center mt-4">
+                        <a href="/admin/dashboard" class="btn btn-primary me-2">
+                            <i class="bi bi-house-fill"></i> Back to Dashboard
+                        </a>
+                        <button onclick="window.history.back()" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Go Back
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

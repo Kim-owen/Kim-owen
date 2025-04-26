@@ -1,0 +1,87 @@
+<%- include('layout', { title: 'Users', path: 'users' }) %>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">All Users</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>User ID</th>
+                        <th>Phone Number</th>
+                        <th>Wallet Address</th>
+                        <th>Transactions</th>
+                        <th>Operator</th>
+                        <th>Country</th>
+                        <th>Joined</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% if (users.length === 0) { %>
+                    <tr>
+                        <td colspan="7" class="text-center">No users found</td>
+                    </tr>
+                    <% } else { %>
+                    <% users.forEach(user => { %>
+                    <tr>
+                        <td><%= user._id.toString().substring(0, 8) %>...</td>
+                        <td><%= user.phoneNumber %></td>
+                        <td title="<%= user.walletAddress %>">
+                            <% if (user.walletAddress) { %>
+                                <%= user.walletAddress.substring(0, 6) %>...
+                                <%= user.walletAddress.substring(user.walletAddress.length - 4) %>
+                            <% } else { %>
+                                <span class="text-muted">Not set</span>
+                            <% } %>
+                        </td>
+                        <td><%= userTxCounts[user._id.toString()] || 0 %></td>
+                        <td><%= user.operator || 'Unknown' %></td>
+                        <td><%= user.country || 'Unknown' %></td>
+                        <td><%= moment(user.createdAt).format('MMM DD, YYYY') %></td>
+                        <td>
+                            <a href="/admin/users/<%= user._id %>" class="btn btn-sm btn-primary">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    <% }); %>
+                    <% } %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer">
+        <nav>
+            <ul class="pagination justify-content-center mb-0">
+                <% if (page > 1) { %>
+                <li class="page-item">
+                    <a class="page-link" href="/admin/users?page=<%= page - 1 %>">Previous</a>
+                </li>
+                <% } else { %>
+                <li class="page-item disabled">
+                    <span class="page-link">Previous</span>
+                </li>
+                <% } %>
+                
+                <% for (let i = 1; i <= totalPages; i++) { %>
+                <li class="page-item <%= page === i ? 'active' : '' %>">
+                    <a class="page-link" href="/admin/users?page=<%= i %>"><%= i %></a>
+                </li>
+                <% } %>
+                
+                <% if (page < totalPages) { %>
+                <li class="page-item">
+                    <a class="page-link" href="/admin/users?page=<%= page + 1 %>">Next</a>
+                </li>
+                <% } else { %>
+                <li class="page-item disabled">
+                    <span class="page-link">Next</span>
+                </li>
+                <% } %>
+            </ul>
+        </nav>
+    </div>
+</div>
