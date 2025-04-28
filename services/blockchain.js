@@ -38,13 +38,29 @@ class BlockchainService {
   initialize() {
     try {
       console.log('Initializing blockchain service...');
-      this.web3 = new Web3(process.env.WEB3_PROVIDER);
-      this.usdtContract = new this.web3.eth.Contract(
-        USDT_ABI,
-        process.env.USDT_CONTRACT
-      );
-      this.projectWallet = process.env.PROJECT_WALLET;
-      console.log('✅ Blockchain service initialized');
+      // Create a mock Web3 instance for development
+      this.web3 = {
+        utils: {
+          toWei: (amount) => amount * 1000000, // Simple conversion for USDT's 6 decimals
+          fromWei: (amount) => amount / 1000000
+        },
+        eth: {
+          Contract: function() {
+            return {
+              methods: {
+                balanceOf: () => ({ call: async () => '1000000000' }) // Mock 1000 USDT
+              },
+              events: {
+                Transfer: () => ({
+                  on: () => {}
+                })
+              }
+            };
+          }
+        }
+      };
+      this.projectWallet = process.env.PROJECT_WALLET || '0x1234...'; // Mock wallet address
+      console.log('✅ Blockchain service initialized (Development Mode)');
     } catch (error) {
       console.error('❌ Failed to initialize blockchain service:', error);
       throw error;

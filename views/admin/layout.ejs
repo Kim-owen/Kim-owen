@@ -4,10 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><%= typeof title !== 'undefined' ? title : 'CrypTopUp Admin' %></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/admin.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        .sidebar {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 48px 0 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+        }
+        .sidebar-sticky {
+            position: relative;
+            top: 0;
+            height: calc(100vh - 48px);
+            padding-top: .5rem;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        .nav-link {
+            font-weight: 500;
+            color: rgba(255, 255, 255, .9);
+        }
+        .nav-link:hover {
+            color: #fff;
+        }
+        .nav-link.active {
+            color: #fff;
+            background-color: rgba(255, 255, 255, .25);
+        }
+    </style>
+    <!-- Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Moment.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <style>
+        .health-metrics .progress {
+            width: 200px;
+        }
+        .avatar-circle {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .bg-gradient-primary {
+            background: linear-gradient(45deg, #4f46e5, #6366f1);
+        }
+        .bg-gradient-success {
+            background: linear-gradient(45deg, #059669, #10b981);
+        }
+        .bg-gradient-warning {
+            background: linear-gradient(45deg, #d97706, #fbbf24);
+        }
+        .bg-gradient-info {
+            background: linear-gradient(45deg, #0891b2, #06b6d4);
+        }
+        .icon-box {
+            opacity: 0.8;
+        }
+        .toast-container {
+            z-index: 1050;
+        }
+    </style>
 </head>
 <body>
     <% if (typeof isLoginPage === 'undefined' || !isLoginPage) { %>
@@ -15,9 +92,13 @@
         <div class="row">
             <!-- Sidebar -->
             <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-dark sidebar collapse">
-                <div class="position-sticky pt-3">
+                <div class="position-sticky pt-3 sidebar-sticky">
                     <div class="text-center mb-4">
                         <h5 class="text-white">CrypTopUp Admin</h5>
+                        <small class="text-muted">Logged in as: <%= locals.user ? locals.user.username : 'Admin' %></small>
+                        <% if (locals.user && locals.user.lastLogin) { %>
+                        <small class="text-muted">Last login: <%= moment(locals.user.lastLogin).format('MMM DD, YYYY HH:mm') %></small>
+                        <% } %>
                     </div>
                     <ul class="nav flex-column">
                         <li class="nav-item">
@@ -44,11 +125,20 @@
                                 Settings
                             </a>
                         </li>
-                        <li class="nav-item mt-5">
-                            <a class="nav-link text-danger" href="/admin/logout">
-                                <i class="bi bi-box-arrow-right me-2"></i>
-                                Logout
+                        <li class="nav-item">
+                            <a class="nav-link <%= path === 'reports' ? 'active' : '' %>" href="/admin/reports">
+                                <i class="bi bi-file-earmark-text me-2"></i>
+                                Reports
                             </a>
+                        </li>
+                        <li class="nav-item">
+                            <form action="/admin/logout" method="POST" style="display: inline;">
+                                <input type="hidden" name="_csrf" value="<%= locals.csrfToken %>">
+                                <button type="submit" class="nav-link w-100 text-start border-0 bg-transparent">
+                                    <i class="bi bi-box-arrow-right me-2"></i>
+                                    Logout
+                                </button>
+                            </form>
                         </li>
                     </ul>
                 </div>
@@ -65,6 +155,12 @@
                                 <%= new Date().toLocaleDateString() %>
                             </span>
                         </div>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copyToClipboard('<%= req.session.adminUsername %>')">
+                                <i class="bi bi-clipboard me-1"></i>
+                                Copy Username
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -78,7 +174,122 @@
     </div>
     <% } %>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Bootstrap Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/js/admin.js"></script>
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text)
+                .then(() => {
+                    const button = event.target;
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                    }, 2000);
+                })
+                .catch(err => console.error('Failed to copy text: ', err));
+        }
+    </script>
+    <!-- System Alerts -->
+<div class="system-alerts position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+    <div class="alert-container"></div>
+</div>
+
+<!-- Toast Container -->
+    <div class="toast-container position-fixed top-0 end-0 p-3"></div>
+    
+    <!-- Custom Scripts -->
+    <script>
+        // Initialize tooltips
+        // Initialize Socket.IO
+const socket = io();
+
+// System Alerts Handler
+const alertContainer = document.querySelector('.alert-container');
+
+socket.on('system_alert', (alert) => {
+    const alertElement = document.createElement('div');
+    alertElement.className = `alert alert-${alert.type} alert-dismissible fade show`;
+    alertElement.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="bi bi-${getAlertIcon(alert.type)} fs-4 me-2"></i>
+            <div>
+                <div class="fw-bold">${alert.message}</div>
+                <small class="text-muted">${moment(alert.timestamp).fromNow()}</small>
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    alertContainer.appendChild(alertElement);
+    
+    // Remove alert after 5 seconds
+    setTimeout(() => {
+        alertElement.classList.remove('show');
+        setTimeout(() => alertElement.remove(), 150);
+    }, 5000);
+});
+
+function getAlertIcon(type) {
+    const icons = {
+        success: 'check-circle-fill',
+        warning: 'exclamation-triangle-fill',
+        danger: 'x-circle-fill',
+        info: 'info-circle-fill'
+    };
+    return icons[type] || icons.info;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+
+        // Enhanced Toast Notifications
+        function showToast(type, message) {
+            const toastContainer = document.querySelector('.toast-container');
+            
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            
+            const icon = type === 'success' ? 'check-circle-fill' :
+                        type === 'error' ? 'x-circle-fill' :
+                        type === 'warning' ? 'exclamation-triangle-fill' : 'info-circle-fill';
+            
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <i class="bi bi-${icon} me-2"></i>
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            
+            toast.addEventListener('hidden.bs.toast', () => {
+                toast.remove();
+            });
+        }
+
+        // Format date/time
+        function formatDateTime(date) {
+            return moment(date).format('MMM DD, YYYY HH:mm');
+        }
+
+        // Format currency
+        function formatCurrency(amount, currency = 'USDT') {
+            return `${parseFloat(amount).toFixed(2)} ${currency}`;
+        }
+    </script>
 </body>
 </html>

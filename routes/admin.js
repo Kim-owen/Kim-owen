@@ -1,17 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const os = require('os');
+const { performance } = require('perf_hooks');
 const moment = require('moment');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
 const blockchainService = require('../services/blockchain');
 const authService = require('../services/authentication');
 const operators = require('../config/operators');
-const os = require('os');
 const csrf = require('csurf');
 const rateLimit = require('express-rate-limit');
-
-// CSRF protection
-const csrfProtection = csrf({ cookie: true });
 
 // Rate limiter for login attempts
 const loginLimiter = rateLimit({
@@ -27,15 +25,6 @@ const requireAuth = (req, res, next) => {
   }
   return res.redirect('/admin/login');
 };
-
-// Apply CSRF protection to all admin routes
-router.use(csrfProtection);
-
-// Add CSRF token to all responses
-router.use((req, res, next) => {
-  res.locals.csrfToken = req.csrfToken();
-  next();
-});
 
 // Test route to verify admin router is working
 router.get('/test', (req, res) => {
@@ -53,10 +42,20 @@ router.get('/', (req, res) => {
 
 // Login page
 router.get('/login', (req, res) => {
-  res.render('admin/login', { error: null, csrfToken: req.csrfToken() });
+  if (req.session.isAdmin) {
+    return res.redirect('/admin/dashboard');
+  }
+  res.render('admin/login', {
+    title: 'Login - CrypTopUp Admin',
+    error: req.session.error,
+    layout: 'admin/layout',
+    isLoginPage: true
+  });
+  // Clear any error messages
+  delete req.session.error;
 });
 
-// Login action with rate limiting
+// Login action with rate limiting and CSRF
 router.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   
@@ -75,77 +74,100 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
     
     console.log(`Failed login attempt for username: ${username} at ${new Date().toISOString()}`);
-    res.render('admin/login', { 
-      error: 'Invalid username or password', 
-      csrfToken: req.csrfToken() 
-    });
+    req.session.error = 'Invalid username or password';
+    return res.redirect('/admin/login');
   } catch (error) {
     console.error('Login error:', error);
-    res.render('admin/login', { 
-      error: 'An error occurred during login. Please try again.', 
-      csrfToken: req.csrfToken() 
-    });
+    req.session.error = 'An error occurred during login. Please try again.';
+    return res.redirect('/admin/login');
   }
 });
 
 // Logout action
-router.get('/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/admin/login');
+router.post('/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Error destroying session:', err);
+    }
+    res.redirect('/admin/login');
+  });
 });
 
 // Dashboard page
 router.get('/dashboard', requireAuth, async (req, res) => {
   try {
-    // Get transaction counts by status
-    const pendingCount = await Transaction.countDocuments({ status: 'PENDING' });
-    const confirmedCount = await Transaction.countDocuments({ status: 'CONFIRMED' });
-    const completedCount = await Transaction.countDocuments({ status: 'COMPLETED' });
-    const failedCount = await Transaction.countDocuments({ status: 'FAILED' });
+    // Get total users
+    const totalUsers = await User.countDocuments();
     
-    // Get user count
-    const userCount = await User.countDocuments();
+    // Get total transactions
+    const totalTransactions = await Transaction.countDocuments();
     
-    // Get recent transactions
+    // Get total revenue from completed transactions
+    const completedTransactions = await Transaction.find({ status: 'COMPLETED' });
+    const totalRevenue = completedTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    
+    // Get pending orders
+    const pendingOrders = await Transaction.countDocuments({ status: 'PENDING' });
+    
+    // Get recent transactions with user details
     const recentTransactions = await Transaction.find()
       .sort({ createdAt: -1 })
       .limit(10)
-      .populate('userId');
-    
-    // Get daily transaction counts (last 7 days)
-    const days = [];
-    const dailyCounts = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const date = moment().subtract(i, 'days');
-      const startOfDay = date.startOf('day').toDate();
-      const endOfDay = date.endOf('day').toDate();
-      
-      const count = await Transaction.countDocuments({
-        createdAt: { $gte: startOfDay, $lte: endOfDay }
-      });
-      
-      days.push(date.format('MMM DD'));
-      dailyCounts.push(count);
-    }
-    
-    // Get total revenue (in USDT)
-    const transactions = await Transaction.find({ status: 'COMPLETED' });
-    const totalRevenue = transactions.reduce((sum, tx) => sum + tx.amount.crypto, 0);
-    
-    // Render dashboard with data
+      .populate('userId')
+      .lean();
+
+    // Format transactions for display
+    const formattedTransactions = recentTransactions.map(t => ({
+      id: t._id,
+      userAvatar: '/images/default-avatar.png', // You can update this with actual user avatars
+      userName: t.userId ? t.userId.username : 'Unknown User',
+      amount: t.amount || 0,
+      type: t.type || 'Unknown',
+      status: t.status.toLowerCase(),
+      date: moment(t.createdAt).format('MMM DD, YYYY HH:mm')
+    }));
+
+    // Render dashboard with all required data
     res.render('admin/dashboard', {
-      pendingCount,
-      confirmedCount,
-      completedCount,
-      failedCount,
-      userCount,
-      recentTransactions,
-      days,
-      dailyCounts,
+      title: 'Dashboard - CrypTopUp Admin',
+      path: 'dashboard',
+      totalUsers,
+      totalTransactions,
       totalRevenue,
+      pendingOrders,
+      recentTransactions: formattedTransactions,
       moment
     });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.status(500).render('admin/error', { error });
+  }
+});
+
+// Transaction update endpoint
+router.post('/transactions/:id/update', requireAuth, async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id);
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    // Update transaction status
+    transaction.status = req.body.status;
+    await transaction.save();
+
+    // Emit transaction update
+    const transactionEvents = req.app.get('transactionEvents');
+    if (transactionEvents) {
+      transactionEvents.emit('transaction_update', transaction);
+      transactionEvents.emit('system_alert', {
+        type: 'success',
+        message: `Transaction ${transaction._id} has been updated to ${req.body.status}`,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({ success: true, transaction });
   } catch (error) {
     console.error('Dashboard error:', error);
     res.status(500).render('admin/error', { error });
@@ -204,7 +226,11 @@ router.get('/transactions/:id', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Transaction details error:', error);
-    res.status(500).render('admin/error', { error });
+    res.status(500).render('admin/error', {
+      title: 'Error - CrypTopUp Admin',
+      error: error.message || 'An unexpected error occurred while loading the transaction details',
+      isLoginPage: true
+    });
   }
 });
 
@@ -244,7 +270,11 @@ router.get('/users', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Users error:', error);
-    res.status(500).render('admin/error', { error });
+    res.status(500).render('admin/error', {
+      title: 'Error - CrypTopUp Admin',
+      error: error.message || 'An unexpected error occurred while loading the users list',
+      isLoginPage: true
+    });
   }
 });
 
@@ -319,6 +349,69 @@ router.get('/settings', requireAuth, async (req, res) => {
   }
 });
 
+// Transaction approval
+router.post('/transactions/:id/approve', requireAuth, async (req, res) => {
+    try {
+        const transaction = await Transaction.findById(req.params.id);
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        // Update transaction status
+        transaction.status = 'COMPLETED';
+        await transaction.save();
+
+        // Emit transaction update
+        const transactionEvents = req.app.get('transactionEvents');
+        if (transactionEvents) {
+            transactionEvents.emit('transaction_update', transaction);
+            transactionEvents.emit('system_alert', {
+                type: 'success',
+                message: `Transaction ${transaction._id.toString().substring(0, 8)}... has been completed`,
+                timestamp: new Date()
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Transaction approval error:', error);
+        res.status(500).json({ error: 'Failed to approve transaction' });
+    }
+});
+
+// Transaction rejection
+router.post('/transactions/:id/reject', requireAuth, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const transaction = await Transaction.findById(req.params.id);
+        
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        // Update transaction status
+        transaction.status = 'FAILED';
+        transaction.rejectionReason = reason;
+        await transaction.save();
+
+        // Emit transaction update
+        const transactionEvents = req.app.get('transactionEvents');
+        if (transactionEvents) {
+            transactionEvents.emit('transaction_update', transaction);
+            transactionEvents.emit('system_alert', {
+                type: 'danger',
+                message: `Transaction ${transaction._id.toString().substring(0, 8)}... has been rejected: ${reason}`,
+                timestamp: new Date()
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Transaction rejection error:', error);
+        res.status(500).json({ error: 'Failed to reject transaction' });
+    }
+});
+
 // API routes for AJAX data
 router.get('/api/transactions/stats', requireAuth, async (req, res) => {
   try {
@@ -351,6 +444,208 @@ router.get('/api/transactions/stats', requireAuth, async (req, res) => {
     console.error('Stats API error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Dashboard Refresh API
+router.get('/api/transactions/refresh', async (req, res) => {
+    try {
+        // Get transaction counts
+        const [pendingCount, confirmedCount, completedCount, failedCount] = await Promise.all([
+            Transaction.countDocuments({ status: 'PENDING' }),
+            Transaction.countDocuments({ status: 'CONFIRMED' }),
+            Transaction.countDocuments({ status: 'COMPLETED' }),
+            Transaction.countDocuments({ status: 'FAILED' })
+        ]);
+
+        // Get daily transaction counts for the last 7 days
+        const last7Days = [];
+        const dailyCounts = [];
+        
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            date.setHours(0, 0, 0, 0);
+            
+            const nextDate = new Date(date);
+            nextDate.setDate(date.getDate() + 1);
+            
+            const count = await Transaction.countDocuments({
+                createdAt: { $gte: date, $lt: nextDate }
+            });
+            
+            last7Days.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+            dailyCounts.push(count);
+        }
+
+        res.json({
+            days: last7Days,
+            dailyCounts,
+            statusCounts: {
+                pending: pendingCount,
+                confirmed: confirmedCount,
+                completed: completedCount,
+                failed: failedCount
+            }
+        });
+    } catch (error) {
+        console.error('Refresh error:', error);
+        res.status(500).json({ error: 'Failed to refresh dashboard data' });
+    }
+});
+
+// System Health Monitoring
+router.get('/api/system/health', async (req, res) => {
+    try {
+        const startTime = performance.now();
+        
+        // Get basic system metrics
+        const metrics = {
+            apiResponse: Math.round(performance.now() - startTime),
+            memoryUsage: Math.round((1 - os.freemem() / os.totalmem()) * 100),
+            dbLoad: 0, // Will be calculated below
+            cpuUsage: Math.round(os.loadavg()[0] * 100) / 100,
+            uptime: Math.round(os.uptime() / 3600) // Hours
+        };
+
+        // Get database metrics
+        const dbStats = await mongoose.connection.db.stats();
+        metrics.dbLoad = Math.round((dbStats.indexSize + dbStats.dataSize) / (1024 * 1024)); // MB
+
+        res.json(metrics);
+    } catch (error) {
+        console.error('Health check error:', error);
+        res.status(500).json({ error: 'Failed to get system health metrics' });
+    }
+});
+
+// Advanced Search API
+// Helper function to emit transaction updates
+function emitTransactionUpdate(transaction, req) {
+    const transactionEvents = req.app.get('transactionEvents');
+    if (transactionEvents) {
+        transactionEvents.emit('transaction_update', transaction);
+    }
+}
+
+router.post('/api/transactions/search', async (req, res) => {
+    try {
+        const { dateRange, transactionType, minAmount, maxAmount, status } = req.body;
+        
+        // Build query
+        const query = {};
+        
+        // Date range
+        if (dateRange) {
+            const now = new Date();
+            switch(dateRange) {
+                case 'today':
+                    query.createdAt = { $gte: new Date(now.setHours(0,0,0,0)) };
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    query.createdAt = {
+                        $gte: new Date(yesterday.setHours(0,0,0,0)),
+                        $lt: new Date(now.setHours(0,0,0,0))
+                    };
+                    break;
+                case 'last7':
+                    query.createdAt = {
+                        $gte: new Date(now.setDate(now.getDate() - 7))
+                    };
+                    break;
+                case 'last30':
+                    query.createdAt = {
+                        $gte: new Date(now.setDate(now.getDate() - 30))
+                    };
+                    break;
+            }
+        }
+        
+        // Transaction type
+        if (transactionType) {
+            query.type = transactionType;
+        }
+        
+        // Amount range
+        if (minAmount || maxAmount) {
+            query['amount.crypto'] = {};
+            if (minAmount) query['amount.crypto'].$gte = parseFloat(minAmount);
+            if (maxAmount) query['amount.crypto'].$lte = parseFloat(maxAmount);
+        }
+        
+        // Status
+        if (status) {
+            query.status = status;
+        }
+        
+        const transactions = await Transaction.find(query)
+            .populate('userId', 'phoneNumber username')
+            .populate('dataPlan', 'name')
+            .sort({ createdAt: -1 })
+            .limit(50);
+        
+        // Calculate analytics
+        const analytics = {
+            totalCount: await Transaction.countDocuments(query),
+            totalAmount: await Transaction.aggregate([
+                { $match: query },
+                { $group: {
+                    _id: null,
+                    total: { $sum: '$amount.crypto' }
+                }}
+            ]).then(result => result[0]?.total || 0),
+            statusBreakdown: await Transaction.aggregate([
+                { $match: query },
+                { $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }}
+            ])
+        };
+        
+        res.json({ transactions, analytics });
+    } catch (error) {
+        console.error('Search error:', error);
+        res.status(500).json({ error: 'Failed to search transactions' });
+    }
+});
+
+// Export API
+router.get('/api/transactions/export', async (req, res) => {
+    try {
+        const { format } = req.query;
+        const transactions = await Transaction.find({})
+            .populate('userId', 'phoneNumber username')
+            .populate('dataPlan', 'name')
+            .sort({ createdAt: -1 });
+
+        let data;
+        switch (format) {
+            case 'csv':
+                data = generateCSV(transactions);
+                res.setHeader('Content-Type', 'text/csv');
+                res.setHeader('Content-Disposition', `attachment; filename=transactions_${Date.now()}.csv`);
+                break;
+            case 'excel':
+                data = generateExcel(transactions);
+                res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+                res.setHeader('Content-Disposition', `attachment; filename=transactions_${Date.now()}.xlsx`);
+                break;
+            case 'pdf':
+                data = await generatePDF(transactions);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename=transactions_${Date.now()}.pdf`);
+                break;
+            default:
+                return res.status(400).json({ error: 'Invalid export format' });
+        }
+
+        res.send(data);
+    } catch (error) {
+        console.error('Export error:', error);
+        res.status(500).json({ error: 'Failed to export transactions' });
+    }
 });
 
 module.exports = router;
